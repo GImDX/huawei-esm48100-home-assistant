@@ -1,0 +1,211 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "此 RS485 总线已配置。",
+      "reconfigure_successful": "RS485 总线配置已更新。"
+    },
+    "error": {
+      "cannot_connect": "无法与一个或多个已配置的电池通信。",
+      "invalid_addresses": "请输入一个或多个 1 至 247 范围内且不重复的地址。",
+      "invalid_scan_range": "扫描起始地址不能大于结束地址。",
+      "no_devices_found": "没有电池响应。请检查连接或调整扫描范围。",
+      "unknown": "发生意外错误。"
+    },
+    "progress": {
+      "scan_bus": "正在使用安全的只读请求扫描 RS485 总线。"
+    },
+    "step": {
+      "address_method": {
+        "description": "选择添加电池地址的方式。",
+        "menu_options": {
+          "manual": "手工输入地址",
+          "scan": "扫描 RS485 总线"
+        },
+        "title": "电池地址"
+      },
+      "manual": {
+        "data": {
+          "slave_addresses": "从站地址"
+        },
+        "data_description": {
+          "slave_addresses": "用逗号分隔十进制或带 0x 前缀的地址，例如 0xD6, 0xD7。"
+        },
+        "description": "创建配置项前，会使用安全的只读请求验证每个输入地址。",
+        "title": "输入电池地址"
+      },
+      "scan": {
+        "data": {
+          "scan_addresses": "扫描地址",
+          "scan_rounds": "扫描轮数"
+        },
+        "data_description": {
+          "scan_addresses": "用逗号分隔十进制或带 0x 前缀的地址。默认值对应华为上位机的 0xD6–0xDD 和 0xE0–0xE7 地址集。",
+          "scan_rounds": "每轮都会探测全部所选地址，包括已经响应的地址。"
+        },
+        "description": "每次探测都安全读取寄存器 0x0000。一次有效响应即可发现电池。",
+        "title": "扫描 RS485 总线"
+      },
+      "scan_result": {
+        "data": {
+          "slave_addresses": "已发现电池"
+        },
+        "data_description": {
+          "slave_addresses": "选择一个或多个要添加的响应电池。"
+        },
+        "description": "列表中的地址均返回了有效的 Modbus RTU 响应。",
+        "title": "选择已发现电池"
+      },
+      "serial": {
+        "data": {
+          "baudrate": "波特率",
+          "enable_control_entities": "启用高级控制实体",
+          "parity": "校验位",
+          "response_timeout": "响应超时",
+          "serial_port": "串口",
+          "stopbits": "停止位"
+        },
+        "data_description": {
+          "response_timeout": "接收一帧完整 Modbus RTU 响应的最长秒数，不是采集间隔。",
+          "serial_port": "如果可用，请使用稳定的 /dev/serial/by-id 路径。",
+          "enable_control_entities": "默认关闭。启用后将允许修改电池持久化设置的已验证寄存器写入。"
+        },
+        "description": "配置本地 USB 或串口 RS485 适配器。",
+        "title": "串口 RTU"
+      },
+      "tcp": {
+        "data": {
+          "connect_timeout": "连接超时",
+          "host": "主机",
+          "enable_control_entities": "启用高级控制实体",
+          "port": "端口",
+          "response_timeout": "响应超时"
+        },
+        "data_description": {
+          "connect_timeout": "建立 TCP 连接允许的最长秒数。",
+          "response_timeout": "连接后接收一帧完整 Modbus RTU 响应的最长秒数，不是采集间隔。",
+          "enable_control_entities": "默认关闭。启用后将允许修改电池持久化设置的已验证寄存器写入。"
+        },
+        "description": "网关必须透明转发包含 CRC 的完整 Modbus RTU 帧。",
+        "title": "TCP RTU 透明网关"
+      },
+      "reconfigure": {
+        "data": {
+          "connection_type": "连接类型"
+        },
+        "description": "重新选择连接类型，并再次验证连接参数和电池地址。验证或扫描期间会暂停当前集成，确保只有一条 Home Assistant 连接占用 RS485 总线。",
+        "title": "重新配置 Huawei ESM-48100"
+      },
+      "user": {
+        "data": {
+          "connection_type": "连接类型"
+        },
+        "description": "选择 Home Assistant 连接 RS485 总线的方式。",
+        "title": "Huawei ESM-48100"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "enable_control_entities": "启用高级控制实体",
+          "keepalive_interval": "保活间隔",
+          "update_interval": "完整采集间隔"
+        },
+        "data_description": {
+          "enable_control_entities": "默认关闭。启用后将允许修改电池持久化设置的已验证寄存器写入。",
+          "keepalive_interval": "轻量只读保活检查的间隔秒数，推荐值为 10 秒。",
+          "update_interval": "完整电池快照的采集间隔秒数。增大此值可减少 Recorder 数据量。"
+        },
+        "description": "配置运行时采集和安全行为。",
+        "title": "Huawei ESM-48100 选项"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "active_alarm": {
+        "name": "活动告警"
+      }
+    },
+    "number": {
+      "charge_limit_coefficient": {
+        "name": "充电限流系数"
+      },
+      "default_charge_limit_coefficient": {
+        "name": "默认充电限流系数"
+      },
+      "discharge_limit_coefficient": {
+        "name": "放电限流系数"
+      }
+    },
+    "sensor": {
+      "battery_current": {
+        "name": "电池电流"
+      },
+      "battery_state": {
+        "name": "电池状态"
+      },
+      "bar_code": {
+        "name": "电池条码"
+      },
+      "bus_voltage": {
+        "name": "母线电压"
+      },
+      "cell_count": {
+        "name": "电芯数量"
+      },
+      "cell_temperature": {
+        "name": "电芯 {number} 温度"
+      },
+      "cell_voltage": {
+        "name": "电芯 {number} 电压"
+      },
+      "cell_voltage_delta": {
+        "name": "电芯压差"
+      },
+      "discharge_ah": {
+        "name": "累计放电容量"
+      },
+      "discharge_times": {
+        "name": "累计放电次数"
+      },
+      "electrical_label": {
+        "name": "电子标签档案"
+      },
+      "highest_cell_temperature": {
+        "name": "最高电芯温度"
+      },
+      "lowest_cell_temperature": {
+        "name": "最低电芯温度"
+      },
+      "maximum_cell_voltage": {
+        "name": "最高电芯电压"
+      },
+      "minimum_cell_voltage": {
+        "name": "最低电芯电压"
+      },
+      "pack_voltage": {
+        "name": "电池组电压"
+      },
+      "software_version": {
+        "name": "软件版本"
+      },
+      "state_of_charge": {
+        "name": "荷电状态"
+      },
+      "state_of_health": {
+        "name": "健康状态"
+      }
+    },
+    "switch": {
+      "do1_alarm_action": {
+        "name": "DO1 告警动作打开"
+      },
+      "do2_alarm_action": {
+        "name": "DO2 告警动作打开"
+      }
+    }
+  },
+  "title": "Huawei ESM-48100"
+}

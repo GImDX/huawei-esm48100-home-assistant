@@ -1,0 +1,211 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This RS485 bus is already configured.",
+      "reconfigure_successful": "The RS485 bus configuration was updated."
+    },
+    "error": {
+      "cannot_connect": "Failed to communicate with one or more configured batteries.",
+      "invalid_addresses": "Enter one or more unique addresses from 1 to 247.",
+      "invalid_scan_range": "The scan start address must not be greater than the end address.",
+      "no_devices_found": "No batteries responded. Check the connection or adjust the scan range.",
+      "unknown": "Unexpected error."
+    },
+    "progress": {
+      "scan_bus": "Scanning the RS485 bus with safe read-only requests."
+    },
+    "step": {
+      "address_method": {
+        "description": "Choose how battery addresses are added.",
+        "menu_options": {
+          "manual": "Enter addresses manually",
+          "scan": "Scan the RS485 bus"
+        },
+        "title": "Battery addresses"
+      },
+      "manual": {
+        "data": {
+          "slave_addresses": "Slave addresses"
+        },
+        "data_description": {
+          "slave_addresses": "Comma-separated decimal or 0x-prefixed addresses, for example 0xD6, 0xD7."
+        },
+        "description": "Every entered address is validated with safe read-only requests before the entry is created.",
+        "title": "Enter battery addresses"
+      },
+      "scan": {
+        "data": {
+          "scan_addresses": "Addresses to scan",
+          "scan_rounds": "Scan rounds"
+        },
+        "data_description": {
+          "scan_addresses": "Comma-separated decimal or 0x-prefixed addresses. The default matches Huawei's 0xD6–0xDD and 0xE0–0xE7 scan set.",
+          "scan_rounds": "Every selected address is probed once per round, including addresses that already responded."
+        },
+        "description": "Each probe is a safe read of register 0x0000. One valid response is enough to discover a battery.",
+        "title": "Scan the RS485 bus"
+      },
+      "scan_result": {
+        "data": {
+          "slave_addresses": "Discovered batteries"
+        },
+        "data_description": {
+          "slave_addresses": "Select one or more responding batteries to add."
+        },
+        "description": "The listed addresses returned a valid Modbus RTU response.",
+        "title": "Select discovered batteries"
+      },
+      "serial": {
+        "data": {
+          "baudrate": "Baud rate",
+          "enable_control_entities": "Enable advanced control entities",
+          "parity": "Parity",
+          "response_timeout": "Response timeout",
+          "serial_port": "Serial port",
+          "stopbits": "Stop bits"
+        },
+        "data_description": {
+          "response_timeout": "Maximum seconds to receive one complete Modbus RTU response. This is not the polling interval.",
+          "serial_port": "Use a stable /dev/serial/by-id path when available.",
+          "enable_control_entities": "Disabled by default. Enabling allows validated register writes that can change persistent battery settings."
+        },
+        "description": "Configure a local USB or serial RS485 adapter.",
+        "title": "Serial RTU"
+      },
+      "tcp": {
+        "data": {
+          "connect_timeout": "Connection timeout",
+          "host": "Host",
+          "enable_control_entities": "Enable advanced control entities",
+          "port": "Port",
+          "response_timeout": "Response timeout"
+        },
+        "data_description": {
+          "connect_timeout": "Maximum seconds allowed to establish the TCP connection.",
+          "response_timeout": "Maximum seconds to receive one complete Modbus RTU response after connecting. This is not the polling interval.",
+          "enable_control_entities": "Disabled by default. Enabling allows validated register writes that can change persistent battery settings."
+        },
+        "description": "The gateway must transparently forward complete Modbus RTU frames including CRC.",
+        "title": "TCP RTU transparent gateway"
+      },
+      "reconfigure": {
+        "data": {
+          "connection_type": "Connection type"
+        },
+        "description": "Choose the connection type, then validate connection details and battery addresses again. The active integration is paused while the bus is validated or scanned so only one Home Assistant connection can use the RS485 bus.",
+        "title": "Reconfigure Huawei ESM-48100"
+      },
+      "user": {
+        "data": {
+          "connection_type": "Connection type"
+        },
+        "description": "Choose how Home Assistant connects to the RS485 bus.",
+        "title": "Huawei ESM-48100"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "enable_control_entities": "Enable advanced control entities",
+          "keepalive_interval": "Keepalive interval",
+          "update_interval": "Full collection interval"
+        },
+        "data_description": {
+          "enable_control_entities": "Disabled by default. Enabling allows validated register writes that can change persistent battery settings.",
+          "keepalive_interval": "Seconds between lightweight read-only keepalive checks. The recommended value is 10 seconds.",
+          "update_interval": "Seconds between complete battery snapshots. Increasing this reduces Recorder data volume."
+        },
+        "description": "Configure runtime collection and safety behavior.",
+        "title": "Huawei ESM-48100 options"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "active_alarm": {
+        "name": "Active alarm"
+      }
+    },
+    "number": {
+      "charge_limit_coefficient": {
+        "name": "Charge limit coefficient"
+      },
+      "default_charge_limit_coefficient": {
+        "name": "Default charge limit coefficient"
+      },
+      "discharge_limit_coefficient": {
+        "name": "Discharge limit coefficient"
+      }
+    },
+    "sensor": {
+      "battery_current": {
+        "name": "Battery current"
+      },
+      "battery_state": {
+        "name": "Battery state"
+      },
+      "bar_code": {
+        "name": "Battery bar code"
+      },
+      "bus_voltage": {
+        "name": "Bus voltage"
+      },
+      "cell_count": {
+        "name": "Cell count"
+      },
+      "cell_temperature": {
+        "name": "Cell {number} temperature"
+      },
+      "cell_voltage": {
+        "name": "Cell {number} voltage"
+      },
+      "cell_voltage_delta": {
+        "name": "Cell voltage delta"
+      },
+      "discharge_ah": {
+        "name": "Discharge capacity"
+      },
+      "discharge_times": {
+        "name": "Discharge times"
+      },
+      "electrical_label": {
+        "name": "Electrical label archive"
+      },
+      "highest_cell_temperature": {
+        "name": "Highest cell temperature"
+      },
+      "lowest_cell_temperature": {
+        "name": "Lowest cell temperature"
+      },
+      "maximum_cell_voltage": {
+        "name": "Maximum cell voltage"
+      },
+      "minimum_cell_voltage": {
+        "name": "Minimum cell voltage"
+      },
+      "pack_voltage": {
+        "name": "Pack voltage"
+      },
+      "software_version": {
+        "name": "Software version"
+      },
+      "state_of_charge": {
+        "name": "State of charge"
+      },
+      "state_of_health": {
+        "name": "State of health"
+      }
+    },
+    "switch": {
+      "do1_alarm_action": {
+        "name": "DO1 alarm action open"
+      },
+      "do2_alarm_action": {
+        "name": "DO2 alarm action open"
+      }
+    }
+  },
+  "title": "Huawei ESM-48100"
+}

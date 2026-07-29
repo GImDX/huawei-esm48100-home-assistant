@@ -1,0 +1,16 @@
+{
+  "codeowners": [
+    "@GImDX"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/GImDX/huawei-esm48100-hacs",
+  "domain": "huawei_esm48100",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/GImDX/huawei-esm48100-hacs/issues",
+  "name": "Huawei ESM-48100",
+  "requirements": [
+    "huawei-esm48100==0.1.0"
+  ],
+  "version": "0.1.0"
+}

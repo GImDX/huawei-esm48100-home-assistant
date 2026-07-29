@@ -1,0 +1,65 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  validate-hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  static-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install "pytest>=8.3" "ruff>=0.12"
+      - run: ruff check .
+      - run: pytest tests --ignore=tests/ha
+      - run: python -m compileall -q custom_components
+
+  home-assistant-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the integration
+        uses: actions/checkout@v4
+        with:
+          path: huawei-esm48100-hacs
+      - name: Check out the protocol library
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/huawei-esm48100
+          path: huawei-esm48100
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: huawei-esm48100-hacs/requirements-test.txt
+      - name: Install Home Assistant test dependencies
+        working-directory: huawei-esm48100-hacs
+        run: python -m pip install -r requirements-test.txt
+      - name: Run Home Assistant runtime tests
+        working-directory: huawei-esm48100-hacs
+        run: >-
+          pytest tests/ha
+          --cov=custom_components.huawei_esm48100
+          --cov-report=term-missing

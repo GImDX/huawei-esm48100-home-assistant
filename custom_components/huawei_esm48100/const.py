@@ -1,0 +1,42 @@
+"""Constants for the Huawei ESM-48100 integration."""
+
+from homeassistant.const import Platform
+
+DOMAIN = "huawei_esm48100"
+PLATFORMS = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.NUMBER,
+    Platform.SWITCH,
+]
+
+CONF_CONNECTION_TYPE = "connection_type"
+CONF_SERIAL_PORT = "serial_port"
+CONF_BAUDRATE = "baudrate"
+CONF_PARITY = "parity"
+CONF_STOPBITS = "stopbits"
+CONF_SLAVE_ADDRESSES = "slave_addresses"
+CONF_RESPONSE_TIMEOUT = "response_timeout"
+CONF_CONNECT_TIMEOUT = "connect_timeout"
+CONF_ENABLE_CONTROLS = "enable_control_entities"
+CONF_SCAN_ADDRESSES = "scan_addresses"
+CONF_SCAN_ROUNDS = "scan_rounds"
+CONF_UPDATE_INTERVAL = "update_interval"
+CONF_KEEPALIVE_INTERVAL = "keepalive_interval"
+
+CONNECTION_SERIAL = "serial"
+CONNECTION_TCP = "tcp"
+
+DEFAULT_BAUDRATE = 9600
+DEFAULT_PARITY = "N"
+DEFAULT_STOPBITS = 1
+DEFAULT_TCP_PORT = 5020
+DEFAULT_RESPONSE_TIMEOUT = 3.0
+DEFAULT_CONNECT_TIMEOUT = 5.0
+DEFAULT_SLAVE_ADDRESSES = "0xD6"
+DEFAULT_UPDATE_INTERVAL = 30
+DEFAULT_ENABLE_CONTROLS = False
+DEFAULT_RECOVERY_TIMEOUT = 60.0
+DEFAULT_KEEPALIVE_INTERVAL = 10.0
+DEFAULT_SCAN_ROUNDS = 14
+DEFAULT_SCAN_RESPONSE_TIMEOUT = 0.3
