@@ -9,6 +9,7 @@
       "invalid_addresses": "请输入一个或多个 1 至 247 范围内且不重复的地址。",
       "invalid_scan_range": "扫描起始地址不能大于结束地址。",
       "no_devices_found": "没有电池响应。请检查连接或调整扫描范围。",
+      "serial_port_unavailable": "无法打开所配置的串口。请检查设备是否存在，以及 Home Assistant 是否有权访问。",
       "unknown": "发生意外错误。"
     },
     "progress": {

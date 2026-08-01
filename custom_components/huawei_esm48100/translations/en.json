@@ -9,6 +9,7 @@
       "invalid_addresses": "Enter one or more unique addresses from 1 to 247.",
       "invalid_scan_range": "The scan start address must not be greater than the end address.",
       "no_devices_found": "No batteries responded. Check the connection or adjust the scan range.",
+      "serial_port_unavailable": "The configured serial port could not be opened. Check that the device exists and is accessible to Home Assistant.",
       "unknown": "Unexpected error."
     },
     "progress": {

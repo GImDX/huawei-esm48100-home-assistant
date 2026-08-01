@@ -101,6 +101,7 @@ class MockProtocol:
 def mock_protocol() -> MockProtocol:
     """Return a protocol surface that cannot perform real I/O."""
     transport = MagicMock()
+    transport.connect = AsyncMock()
     transport.close = AsyncMock()
     transport.diagnostics = TransportDiagnostics(
         requests=202,

@@ -6,9 +6,11 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous_serialize
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import config_validation as cv
 from huawei_esm48100 import DEFAULT_SCAN_ADDRESSES, EsmConnectionError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -29,7 +31,7 @@ def _connection_input(connection_type: str) -> dict[str, Any]:
         "serial_port": "COM4",
         "baudrate": 9600,
         "parity": "N",
-        "stopbits": 1,
+        "stopbits": "1",
         "response_timeout": 3.0,
     }
 
@@ -90,6 +92,56 @@ async def test_select_transport_form(
     assert result["errors"] == {}
 
 
+async def test_serial_stopbits_default_is_frontend_safe(hass: Any) -> None:
+    """The stop-bit default matches the string-valued frontend option."""
+    form = await _open_transport_form(hass, "serial")
+    serialized = voluptuous_serialize.convert(
+        form["data_schema"],
+        custom_serializer=cv.custom_serializer,
+    )
+    field = next(item for item in serialized if item["name"] == "stopbits")
+    parity_field = next(
+        item for item in serialized if item["name"] == "parity"
+    )
+
+    assert field["default"] == "1"
+    assert field["type"] == parity_field["type"] == "select"
+    assert field["options"] == [("1", "1"), ("2", "2")]
+    assert "selector" not in field
+    assert form["data_schema"]({"serial_port": "COM4"})["stopbits"] == "1"
+
+
+async def test_reconfigure_serial_stopbits_suggestion_is_frontend_safe(
+    hass: Any,
+    serial_entry_data: dict[str, Any],
+) -> None:
+    """A stored numeric stop-bit value is suggested as a frontend string."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Existing serial bus",
+        data=serial_entry_data,
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+    form = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"connection_type": "serial"},
+    )
+    marker = next(
+        key
+        for key in form["data_schema"].schema
+        if key.schema == "stopbits"
+    )
+
+    assert marker.description["suggested_value"] == "1"
+
+
 @pytest.mark.parametrize("connection_type", ["serial", "tcp"])
 async def test_connection_details_open_address_method_menu(
     hass: Any,
@@ -146,7 +198,8 @@ async def test_create_entry_validates_every_slave(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"]["slave_addresses"] == [0xD6, 0xD7]
     for key, value in _connection_input(connection_type).items():
-        assert result["data"][key] == value
+        expected = 1 if key == "stopbits" else value
+        assert result["data"][key] == expected
     for client in mock_protocol.clients:
         client.ensure_awake.assert_awaited_once_with(force=True)
     mock_protocol.transport.close.assert_awaited_once()
@@ -192,7 +245,10 @@ async def test_scan_bus_runs_every_address_for_every_round(
         ),
     ):
         found = await _async_scan_bus(
-            _connection_input("tcp"),
+            {
+                "connection_type": "tcp",
+                **_connection_input("tcp"),
+            },
             [0xD6, 0xD7],
             3,
             progress,
@@ -291,6 +347,78 @@ async def test_scan_reports_when_no_batteries_respond(hass: Any) -> None:
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "no_devices_found"}
+
+
+async def test_serial_scan_reports_unavailable_port(
+    hass: Any,
+    mock_protocol: Any,
+    protocol_factory: Any,
+) -> None:
+    """A serial port open failure is not reported as an empty scan."""
+    mock_protocol.transport.connect.side_effect = EsmConnectionError(
+        "Unable to open RTU transport"
+    )
+    with (
+        patch(
+            "custom_components.huawei_esm48100.config_flow.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.config_flow.create_clients",
+            protocol_factory.create_clients,
+        ),
+    ):
+        menu = await _open_address_method(hass, "serial")
+        scan_form = await hass.config_entries.flow.async_configure(
+            menu["flow_id"],
+            {"next_step_id": "scan"},
+        )
+        progress = await hass.config_entries.flow.async_configure(
+            scan_form["flow_id"],
+            {"scan_addresses": "0xD6, 0xD7", "scan_rounds": 2},
+        )
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(
+            progress["flow_id"]
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "serial_port_unavailable"}
+    mock_protocol.transport.connect.assert_awaited_once()
+    mock_protocol.transport.close.assert_awaited_once()
+    protocol_factory.create_clients.assert_not_called()
+
+
+async def test_serial_manual_reports_unavailable_port(
+    hass: Any,
+    mock_protocol: Any,
+    protocol_factory: Any,
+) -> None:
+    """Manual validation reports a serial port that cannot be opened."""
+    mock_protocol.transport.connect.side_effect = EsmConnectionError(
+        "Unable to open RTU transport"
+    )
+    with (
+        patch(
+            "custom_components.huawei_esm48100.config_flow.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.config_flow.create_clients",
+            protocol_factory.create_clients,
+        ),
+    ):
+        form = await _open_manual_form(hass, "serial")
+        result = await hass.config_entries.flow.async_configure(
+            form["flow_id"],
+            {"slave_addresses": "0xD6"},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "serial_port_unavailable"}
+    mock_protocol.transport.connect.assert_awaited_once()
+    mock_protocol.transport.close.assert_awaited_once()
+    protocol_factory.create_clients.assert_not_called()
 
 
 @pytest.mark.parametrize("connection_type", ["serial", "tcp"])

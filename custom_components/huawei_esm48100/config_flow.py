@@ -15,7 +15,11 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
 
-from huawei_esm48100 import DEFAULT_SCAN_ADDRESSES, EsmError
+from huawei_esm48100 import (
+    DEFAULT_SCAN_ADDRESSES,
+    EsmConnectionError,
+    EsmError,
+)
 
 from .api import create_clients, create_transport
 from .const import (
@@ -53,6 +57,10 @@ from .helpers import format_slave_addresses, parse_slave_addresses
 _LOGGER = logging.getLogger(__name__)
 
 
+class SerialPortUnavailableError(EsmError):
+    """Raised when a configured local serial port cannot be opened."""
+
+
 def _text_selector() -> selector.TextSelector:
     """Return a serializable text selector."""
     return selector.TextSelector(selector.TextSelectorConfig())
@@ -76,7 +84,10 @@ SERIAL_SCHEMA = vol.Schema(
             vol.Coerce(int), vol.Range(min=300, max=3_000_000)
         ),
         vol.Required(CONF_PARITY, default=DEFAULT_PARITY): vol.In(("N", "E", "O")),
-        vol.Required(CONF_STOPBITS, default=DEFAULT_STOPBITS): vol.In((1, 2)),
+        vol.Required(
+            CONF_STOPBITS,
+            default=str(DEFAULT_STOPBITS),
+        ): vol.In(("1", "2")),
         vol.Required(
             CONF_RESPONSE_TIMEOUT,
             default=DEFAULT_RESPONSE_TIMEOUT,
@@ -170,10 +181,29 @@ async def _async_validate_connection(data: dict[str, Any]) -> None:
     """Open the bus and conservatively validate every configured battery."""
     transport = create_transport(data)
     try:
+        await _async_prepare_serial_transport(data, transport)
         for client in create_clients(transport, data):
             await client.ensure_awake(force=True)
     finally:
         await transport.close()
+
+
+async def _async_prepare_serial_transport(
+    data: Mapping[str, Any],
+    transport: Any,
+) -> None:
+    """Open a local serial port before probing battery addresses."""
+    if data[CONF_CONNECTION_TYPE] != CONNECTION_SERIAL:
+        return
+    try:
+        await transport.connect()
+    except EsmConnectionError as err:
+        _LOGGER.warning(
+            "Configured serial port %s is unavailable: %s",
+            data[CONF_SERIAL_PORT],
+            err,
+        )
+        raise SerialPortUnavailableError from err
 
 
 async def _async_scan_bus(
@@ -193,15 +223,16 @@ async def _async_scan_bus(
         ),
     }
     transport = create_transport(scan_data)
-    clients = {
-        client.slave_address: client
-        for client in create_clients(transport, scan_data)
-    }
     found: set[int] = set()
     total_probes = rounds * len(addresses)
     completed = 0
 
     try:
+        await _async_prepare_serial_transport(scan_data, transport)
+        clients = {
+            client.slave_address: client
+            for client in create_clients(transport, scan_data)
+        }
         for _round in range(rounds):
             for address in addresses:
                 try:
@@ -341,7 +372,11 @@ class HuaweiEsm48100ConfigFlow(
     ) -> ConfigFlowResult:
         """Configure a local serial bus."""
         if user_input is not None:
-            data = {CONF_CONNECTION_TYPE: CONNECTION_SERIAL, **user_input}
+            data = {
+                CONF_CONNECTION_TYPE: CONNECTION_SERIAL,
+                **user_input,
+                CONF_STOPBITS: int(user_input[CONF_STOPBITS]),
+            }
             match = {
                 CONF_CONNECTION_TYPE: CONNECTION_SERIAL,
                 CONF_SERIAL_PORT: data[CONF_SERIAL_PORT],
@@ -355,9 +390,15 @@ class HuaweiEsm48100ConfigFlow(
         schema = SERIAL_SCHEMA
         if self._is_reconfigure():
             entry = self._get_reconfigure_entry()
+            suggested_values = {
+                **entry.data,
+                CONF_STOPBITS: str(
+                    entry.data.get(CONF_STOPBITS, DEFAULT_STOPBITS)
+                ),
+            }
             schema = self.add_suggested_values_to_schema(
                 SERIAL_SCHEMA,
-                entry.data,
+                suggested_values,
             )
         return self.async_show_form(
             step_id="serial",
@@ -448,6 +489,8 @@ class HuaweiEsm48100ConfigFlow(
                 try:
                     async with self._async_exclusive_bus_access():
                         await _async_validate_connection(data)
+                except SerialPortUnavailableError:
+                    errors["base"] = "serial_port_unavailable"
                 except EsmError:
                     errors["base"] = "cannot_connect"
                 except Exception:
@@ -478,6 +521,8 @@ class HuaweiEsm48100ConfigFlow(
                 )
             try:
                 self._scan_results = self._scan_task.result()
+            except SerialPortUnavailableError:
+                self._scan_error = "serial_port_unavailable"
             except Exception:
                 _LOGGER.exception("Unexpected error scanning ESM-48100 bus")
                 self._scan_error = "unknown"
