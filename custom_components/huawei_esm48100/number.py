@@ -89,5 +89,8 @@ class HuaweiEsm48100ControlNumber(HuaweiEsm48100Entity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Write the allowlisted setting and verify it by reading it back."""
-        await self.client.write_control_setting(self.definition.setting, value)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_write_control_setting(
+            self.slave_address,
+            self.definition.setting,
+            value,
+        )

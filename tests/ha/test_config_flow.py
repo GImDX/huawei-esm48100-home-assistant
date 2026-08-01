@@ -14,7 +14,10 @@ from homeassistant.helpers import config_validation as cv
 from huawei_esm48100 import DEFAULT_SCAN_ADDRESSES, EsmConnectionError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.huawei_esm48100.config_flow import _async_scan_bus
+from custom_components.huawei_esm48100.config_flow import (
+    ReconfigureInProgressError,
+    _async_scan_bus,
+)
 from custom_components.huawei_esm48100.const import DOMAIN
 
 
@@ -114,6 +117,7 @@ async def test_serial_stopbits_default_is_frontend_safe(hass: Any) -> None:
 async def test_reconfigure_serial_stopbits_suggestion_is_frontend_safe(
     hass: Any,
     serial_entry_data: dict[str, Any],
+    protocol_factory: Any,
 ) -> None:
     """A stored numeric stop-bit value is suggested as a frontend string."""
     entry = MockConfigEntry(
@@ -122,17 +126,28 @@ async def test_reconfigure_serial_stopbits_suggestion_is_frontend_safe(
         data=serial_entry_data,
     )
     entry.add_to_hass(hass)
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={
-            "source": config_entries.SOURCE_RECONFIGURE,
-            "entry_id": entry.entry_id,
-        },
-    )
-    form = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"connection_type": "serial"},
-    )
+    with (
+        patch(
+            "custom_components.huawei_esm48100.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.create_clients",
+            protocol_factory.create_clients,
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": entry.entry_id,
+            },
+        )
+        form = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"connection_type": "serial"},
+        )
     marker = next(
         key
         for key in form["data_schema"].schema
@@ -267,6 +282,43 @@ async def test_scan_bus_runs_every_address_for_every_round(
     assert scan_data["enable_control_entities"] is False
     progress.assert_called_with(1.0)
     mock_protocol.transport.close.assert_awaited_once()
+
+
+async def test_scan_bus_reuses_borrowed_transport_and_restores_timeout(
+    mock_protocol: Any,
+    protocol_factory: Any,
+) -> None:
+    """An active bus scan neither opens nor closes a second transport."""
+    progress = MagicMock()
+    for client in mock_protocol.clients:
+        client.read_holding_registers = AsyncMock(return_value=(0x14C6,))
+
+    with (
+        patch(
+            "custom_components.huawei_esm48100.config_flow.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.config_flow.create_clients",
+            protocol_factory.create_clients,
+        ),
+    ):
+        found = await _async_scan_bus(
+            {
+                "connection_type": "serial",
+                **_connection_input("serial"),
+            },
+            [0xD6, 0xD7],
+            2,
+            progress,
+            mock_protocol.transport,
+        )
+
+    assert found == [0xD6, 0xD7]
+    assert mock_protocol.transport.timeout == 3.0
+    mock_protocol.transport.connect.assert_not_awaited()
+    mock_protocol.transport.close.assert_not_awaited()
+    protocol_factory.create_transport.assert_not_called()
 
 
 async def test_scan_defaults_match_huawei_capture(hass: Any) -> None:
@@ -500,6 +552,14 @@ async def test_reconfigure_updates_existing_entry(
     entry.add_to_hass(hass)
     with (
         patch(
+            "custom_components.huawei_esm48100.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.create_clients",
+            protocol_factory.create_clients,
+        ),
+        patch(
             "custom_components.huawei_esm48100.config_flow.create_transport",
             protocol_factory.create_transport,
         ),
@@ -513,6 +573,7 @@ async def test_reconfigure_updates_existing_entry(
             new=AsyncMock(return_value=True),
         ),
     ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
         result = await hass.config_entries.flow.async_init(
             DOMAIN,
             context={
@@ -550,23 +611,27 @@ async def test_reconfigure_updates_existing_entry(
     assert entry.title == "TCP 192.0.2.11:1146"
 
 
-async def test_reconfigure_pauses_loaded_entry_during_validation(
+async def test_reconfigure_borrows_loaded_entry_during_validation(
     hass: Any,
     tcp_entry_data: dict[str, Any],
+    mock_protocol: Any,
     protocol_factory: Any,
 ) -> None:
-    """Manual validation must not compete with the active bus transport."""
+    """Manual validation reuses the active transport for an unchanged bus."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Existing bus",
         data=tcp_entry_data,
     )
     entry.add_to_hass(hass)
-    validation_states: list[ConfigEntryState] = []
+    validation_sessions: list[tuple[ConfigEntryState, Any]] = []
 
-    async def validate_while_stopped(data: dict[str, Any]) -> None:
+    async def validate_while_borrowed(
+        data: dict[str, Any],
+        transport: Any,
+    ) -> None:
         del data
-        validation_states.append(entry.state)
+        validation_sessions.append((entry.state, transport))
 
     with (
         patch(
@@ -579,7 +644,7 @@ async def test_reconfigure_pauses_loaded_entry_during_validation(
         ),
         patch(
             "custom_components.huawei_esm48100.config_flow._async_validate_connection",
-            side_effect=validate_while_stopped,
+            side_effect=validate_while_borrowed,
         ),
     ):
         assert await hass.config_entries.async_setup(entry.entry_id)
@@ -608,34 +673,38 @@ async def test_reconfigure_pauses_loaded_entry_during_validation(
         )
         await hass.async_block_till_done()
 
-    assert validation_states == [ConfigEntryState.NOT_LOADED]
+    assert validation_sessions == [
+        (ConfigEntryState.LOADED, mock_protocol.transport)
+    ]
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.state is ConfigEntryState.LOADED
 
 
-async def test_reconfigure_pauses_loaded_entry_during_scan(
+async def test_reconfigure_borrows_loaded_entry_during_scan(
     hass: Any,
     tcp_entry_data: dict[str, Any],
+    mock_protocol: Any,
     protocol_factory: Any,
 ) -> None:
-    """A reconfiguration scan must have exclusive access to the bus."""
+    """A scan reuses the active transport without unloading the entry."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Existing bus",
         data=tcp_entry_data,
     )
     entry.add_to_hass(hass)
-    scan_states: list[ConfigEntryState] = []
+    scan_sessions: list[tuple[ConfigEntryState, Any]] = []
 
     async def scan_while_stopped(
         data: dict[str, Any],
         addresses: list[int],
         rounds: int,
         progress_callback: Any,
+        transport: Any,
     ) -> list[int]:
         del data, rounds, progress_callback
-        scan_states.append(entry.state)
+        scan_sessions.append((entry.state, transport))
         return addresses
 
     with (
@@ -679,9 +748,228 @@ async def test_reconfigure_pauses_loaded_entry_during_scan(
         await hass.async_block_till_done()
         result = await hass.config_entries.flow.async_configure(progress["flow_id"])
 
-    assert scan_states == [ConfigEntryState.NOT_LOADED]
+    assert scan_sessions == [(ConfigEntryState.LOADED, mock_protocol.transport)]
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "scan_result"
+    assert entry.state is ConfigEntryState.LOADED
+    mock_protocol.transport.close.assert_not_awaited()
+
+
+async def test_reconfigure_rejects_entry_while_reload_is_in_progress(
+    hass: Any,
+    tcp_entry_data: dict[str, Any],
+    protocol_factory: Any,
+) -> None:
+    """A transient entry state cannot silently open a competing transport."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Existing bus",
+        data=tcp_entry_data,
+    )
+    entry.add_to_hass(hass)
+    validate = AsyncMock()
+
+    with (
+        patch(
+            "custom_components.huawei_esm48100.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.create_clients",
+            protocol_factory.create_clients,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.config_flow._async_validate_connection",
+            validate,
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": entry.entry_id,
+            },
+        )
+        transport_form = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"connection_type": "tcp"},
+        )
+        menu = await hass.config_entries.flow.async_configure(
+            transport_form["flow_id"],
+            _connection_input("tcp"),
+        )
+        manual = await hass.config_entries.flow.async_configure(
+            menu["flow_id"],
+            {"next_step_id": "manual"},
+        )
+        entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
+        try:
+            result = await hass.config_entries.flow.async_configure(
+                manual["flow_id"],
+                {"slave_addresses": "0xD6, 0xD7"},
+            )
+        finally:
+            entry.mock_state(hass, ConfigEntryState.LOADED)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "reconfigure_in_progress"}
+    validate.assert_not_awaited()
+
+
+async def test_reconfigure_aborts_before_flow_when_entry_is_not_loaded(
+    hass: Any,
+    tcp_entry_data: dict[str, Any],
+) -> None:
+    """A new reconfigure flow cannot start while the entry is transient."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Existing bus",
+        data=tcp_entry_data,
+    )
+    entry.add_to_hass(hass)
+    entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_in_progress"
+
+
+async def test_reconfigure_scan_rechecks_entry_before_creating_task(
+    hass: Any,
+    tcp_entry_data: dict[str, Any],
+    protocol_factory: Any,
+) -> None:
+    """A transient entry at scan submission never starts a scan task."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Existing bus",
+        data=tcp_entry_data,
+    )
+    entry.add_to_hass(hass)
+    scan_bus = AsyncMock(return_value=[0xD6, 0xD7])
+
+    with (
+        patch(
+            "custom_components.huawei_esm48100.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.create_clients",
+            protocol_factory.create_clients,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.config_flow._async_scan_bus",
+            scan_bus,
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": entry.entry_id,
+            },
+        )
+        transport_form = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"connection_type": "tcp"},
+        )
+        menu = await hass.config_entries.flow.async_configure(
+            transport_form["flow_id"],
+            _connection_input("tcp"),
+        )
+        scan = await hass.config_entries.flow.async_configure(
+            menu["flow_id"],
+            {"next_step_id": "scan"},
+        )
+        entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
+        try:
+            result = await hass.config_entries.flow.async_configure(
+                scan["flow_id"],
+                {"scan_addresses": "0xD6, 0xD7", "scan_rounds": 2},
+            )
+        finally:
+            entry.mock_state(hass, ConfigEntryState.LOADED)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "scan"
+    assert result["errors"] == {"base": "reconfigure_in_progress"}
+    scan_bus.assert_not_awaited()
+    assert protocol_factory.create_transport.call_count == 1
+
+
+async def test_reconfigure_scan_task_reports_known_lifecycle_error(
+    hass: Any,
+    tcp_entry_data: dict[str, Any],
+    protocol_factory: Any,
+) -> None:
+    """A lifecycle race inside the task returns to the form without hanging."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Existing bus",
+        data=tcp_entry_data,
+    )
+    entry.add_to_hass(hass)
+    scan_bus = AsyncMock(
+        side_effect=ReconfigureInProgressError("entry became transient")
+    )
+
+    with (
+        patch(
+            "custom_components.huawei_esm48100.create_transport",
+            protocol_factory.create_transport,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.create_clients",
+            protocol_factory.create_clients,
+        ),
+        patch(
+            "custom_components.huawei_esm48100.config_flow._async_scan_bus",
+            scan_bus,
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": entry.entry_id,
+            },
+        )
+        transport_form = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"connection_type": "tcp"},
+        )
+        menu = await hass.config_entries.flow.async_configure(
+            transport_form["flow_id"],
+            _connection_input("tcp"),
+        )
+        scan = await hass.config_entries.flow.async_configure(
+            menu["flow_id"],
+            {"next_step_id": "scan"},
+        )
+        progress = await hass.config_entries.flow.async_configure(
+            scan["flow_id"],
+            {"scan_addresses": "0xD6, 0xD7", "scan_rounds": 2},
+        )
+        assert progress["type"] is FlowResultType.SHOW_PROGRESS
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(
+            progress["flow_id"]
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "scan"
+    assert result["errors"] == {"base": "reconfigure_in_progress"}
+    scan_bus.assert_awaited_once()
     assert entry.state is ConfigEntryState.LOADED
 
 

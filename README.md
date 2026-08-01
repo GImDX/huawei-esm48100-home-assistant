@@ -26,6 +26,21 @@
 响应回显和写后读回校验。MOS、混用、DOD、最大功率、校准、陀螺仪、复位和
 时间同步始终不开放。
 
+## 界面预览
+
+自动扫描会列出返回有效 Modbus RTU 响应的电池地址：
+
+![RS485 bus scan results](docs/images/bus-scan.png)
+
+一个总线配置项可以管理多个电池设备：
+
+![Serial RTU bus and battery devices](docs/images/bus-devices.png)
+
+将所需实体加入仪表盘后，可以并排查看两块电池；高级控制仅在选项中显式
+启用后显示：
+
+![Two-battery dashboard](docs/images/battery-dashboard.png)
+
 ## 开发环境
 
 协议库是独立的
@@ -69,7 +84,7 @@ Remove-Item Env:PYTEST_DISABLE_PLUGIN_AUTOLOAD
 在 HACS 的“自定义仓库”中添加：
 
 ```text
-https://github.com/GImDX/huawei-esm48100-hacs
+https://github.com/GImDX/huawei-esm48100-home-assistant
 ```
 
 类别选择 `Integration`，然后安装 **Huawei ESM-48100** 并重启 Home

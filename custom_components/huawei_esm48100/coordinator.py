@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from contextlib import suppress
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -14,9 +15,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from huawei_esm48100 import (
     BatteryConfiguration,
     BatterySnapshot,
+    ControlSetting,
     EsmClient,
     EsmError,
 )
+from huawei_esm48100.transports import RtuTransport
 
 from .const import (
     CONF_ENABLE_CONTROLS,
@@ -50,6 +53,7 @@ class HuaweiEsm48100Coordinator(DataUpdateCoordinator[BusSnapshot]):
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
+        transport: RtuTransport,
         clients: list[EsmClient],
         runtime_config: dict[str, object],
     ) -> None:
@@ -69,6 +73,7 @@ class HuaweiEsm48100Coordinator(DataUpdateCoordinator[BusSnapshot]):
             ),
             always_update=False,
         )
+        self.transport = transport
         self.clients = clients
         self.clients_by_address = {
             client.slave_address: client for client in clients
@@ -86,6 +91,9 @@ class HuaweiEsm48100Coordinator(DataUpdateCoordinator[BusSnapshot]):
             )
         )
         self._keepalive_task: asyncio.Task[None] | None = None
+        self._bus_lock = asyncio.Lock()
+        self._lifecycle_lock = asyncio.Lock()
+        self._transport_shutdown = False
 
     def start_keepalive(self) -> None:
         """Start the lightweight read-only keepalive loop."""
@@ -110,18 +118,61 @@ class HuaweiEsm48100Coordinator(DataUpdateCoordinator[BusSnapshot]):
         """Keep configured batteries awake with register 0x0000 reads."""
         while True:
             await asyncio.sleep(self.keepalive_interval)
-            for client in self.clients:
-                try:
-                    await client.ensure_awake()
-                except (EsmError, ValueError) as err:
-                    _LOGGER.warning(
-                        "Unable to keep ESM-48100 battery 0x%02X awake: %s",
-                        client.slave_address,
-                        err,
-                    )
+            async with self._bus_lock:
+                for client in self.clients:
+                    try:
+                        await client.ensure_awake()
+                    except (EsmError, ValueError) as err:
+                        _LOGGER.warning(
+                            "Unable to keep ESM-48100 battery 0x%02X awake: %s",
+                            client.slave_address,
+                            err,
+                        )
+
+    @asynccontextmanager
+    async def async_exclusive_bus_access(self) -> AsyncIterator[RtuTransport]:
+        """Lend the active transport while pausing every runtime bus user."""
+        async with self._lifecycle_lock, self._bus_lock:
+            restart_keepalive = self._keepalive_task is not None
+            await self.stop_keepalive()
+            try:
+                yield self.transport
+            finally:
+                if restart_keepalive:
+                    self.start_keepalive()
+
+    async def async_write_control_setting(
+        self,
+        slave_address: int,
+        setting: ControlSetting,
+        value: float | bool,
+    ) -> None:
+        """Serialize an allowlisted write with polling and bus scans."""
+        async with self._bus_lock:
+            await self.clients_by_address[slave_address].write_control_setting(
+                setting,
+                value,
+            )
+        await self.async_request_refresh()
+
+    async def async_shutdown(self) -> None:
+        """Stop runtime activity and close the transport after it becomes idle."""
+        async with self._lifecycle_lock:
+            if self._transport_shutdown:
+                return
+            await super().async_shutdown()
+            async with self._bus_lock:
+                await self.stop_keepalive()
+                await self.transport.close()
+            self._transport_shutdown = True
 
     async def _async_update_data(self) -> BusSnapshot:
         """Poll slaves sequentially while isolating individual failures."""
+        async with self._bus_lock:
+            return await self._async_update_data_locked()
+
+    async def _async_update_data_locked(self) -> BusSnapshot:
+        """Poll the bus while the caller owns the coordinator bus lock."""
         started = monotonic()
         previous = self.data
         batteries = (

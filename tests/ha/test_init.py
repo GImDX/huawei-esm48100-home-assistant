@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -159,6 +160,47 @@ async def test_failed_first_refresh_closes_transport(
     entry = await _setup_entry(hass, tcp_entry_data, protocol_factory)
 
     assert entry.state is ConfigEntryState.SETUP_RETRY
+    mock_protocol.transport.close.assert_awaited_once()
+
+
+async def test_exclusive_bus_access_blocks_polling_without_closing_transport(
+    hass: Any,
+    tcp_entry_data: dict[str, Any],
+    mock_protocol: Any,
+    protocol_factory: Any,
+) -> None:
+    """A Config Flow lease pauses keepalive and queues coordinator polling."""
+    entry = await _setup_entry(hass, tcp_entry_data, protocol_factory)
+    coordinator = entry.runtime_data.coordinator
+
+    async with coordinator.async_exclusive_bus_access() as transport:
+        assert transport is mock_protocol.transport
+        assert coordinator._keepalive_task is None
+        refresh = asyncio.create_task(coordinator.async_refresh())
+        await asyncio.sleep(0)
+        assert refresh.done() is False
+        mock_protocol.transport.close.assert_not_awaited()
+
+    await refresh
+    assert coordinator._keepalive_task is not None
+    mock_protocol.transport.close.assert_not_awaited()
+
+
+async def test_concurrent_shutdown_closes_transport_once(
+    hass: Any,
+    tcp_entry_data: dict[str, Any],
+    mock_protocol: Any,
+    protocol_factory: Any,
+) -> None:
+    """HA and integration shutdown callbacks share one idempotent owner."""
+    entry = await _setup_entry(hass, tcp_entry_data, protocol_factory)
+    coordinator = entry.runtime_data.coordinator
+
+    await asyncio.gather(
+        coordinator.async_shutdown(),
+        coordinator.async_shutdown(),
+    )
+
     mock_protocol.transport.close.assert_awaited_once()
 
 

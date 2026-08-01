@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest an improvement to the Home Assistant integration
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user-facing problem first. Requests for new write controls require
+        independently verified protocol evidence and may be declined for safety reasons.
+        Anti-theft and gyroscope functions are out of scope. Do not include credentials,
+        battery serial numbers, bar codes, private endpoints, or identifying captures.
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What are you trying to achieve in Home Assistant?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe how the integration should behave from the user's perspective.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: writes
+    attributes:
+      label: Does this request require writing to the battery?
+      options:
+        - No
+        - Unsure
+        - Yes
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues for the same request.
+          required: true
+        - label: I have not included credentials, serial numbers, bar codes, or private endpoints.
+          required: true

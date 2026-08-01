@@ -2,6 +2,7 @@
   "config": {
     "abort": {
       "already_configured": "This RS485 bus is already configured.",
+      "reconfigure_in_progress": "The integration is still reloading. Wait for initialization to finish, then try again.",
       "reconfigure_successful": "The RS485 bus configuration was updated."
     },
     "error": {
@@ -9,6 +10,7 @@
       "invalid_addresses": "Enter one or more unique addresses from 1 to 247.",
       "invalid_scan_range": "The scan start address must not be greater than the end address.",
       "no_devices_found": "No batteries responded. Check the connection or adjust the scan range.",
+      "reconfigure_in_progress": "The integration is still reloading. Wait for initialization to finish, then try again.",
       "serial_port_unavailable": "The configured serial port could not be opened. Check that the device exists and is accessible to Home Assistant.",
       "unknown": "Unexpected error."
     },

@@ -1,0 +1,95 @@
+name: Bug report
+description: Report a reproducible problem with the Home Assistant integration
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+
+        Do not post credentials, private endpoints, battery serial numbers, bar codes,
+        unredacted diagnostics, or captures containing identifying information. Advanced
+        controls should remain disabled unless they are necessary to reproduce the issue.
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      description: The installed Huawei ESM-48100 integration version shown by HACS.
+      placeholder: 0.1.1
+    validations:
+      required: true
+  - type: input
+    id: home_assistant_version
+    attributes:
+      label: Home Assistant version
+      placeholder: 2026.7.4
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - HACS release
+        - Manual custom_components copy
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - Serial RTU
+        - Transparent TCP RTU
+    validations:
+      required: true
+  - type: input
+    id: battery
+    attributes:
+      label: Battery model and firmware
+      description: Do not include the serial number or bar code.
+      placeholder: ESM-48100B1, V112
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem description
+      description: Describe what happened and which entities or configuration step are affected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add or reconfigure the integration...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Enable debug logging if needed and remove all identifying information.
+      render: text
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have removed credentials, endpoints, serial numbers, bar codes, and other identifying information.
+          required: true
+        - label: Only one Modbus master was connected to the RS485 bus while reproducing the issue.
+          required: true
+        - label: I have searched existing issues for the same problem.
+          required: true

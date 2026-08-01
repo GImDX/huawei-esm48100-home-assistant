@@ -20,6 +20,7 @@ from huawei_esm48100 import (
     EsmConnectionError,
     EsmError,
 )
+from huawei_esm48100.transports import RtuTransport
 
 from .api import create_clients, create_transport
 from .const import (
@@ -59,6 +60,10 @@ _LOGGER = logging.getLogger(__name__)
 
 class SerialPortUnavailableError(EsmError):
     """Raised when a configured local serial port cannot be opened."""
+
+
+class ReconfigureInProgressError(EsmError):
+    """Raised when the active entry is not stable enough to lend its bus."""
 
 
 def _text_selector() -> selector.TextSelector:
@@ -177,15 +182,58 @@ def _options_schema(values: Mapping[str, Any]) -> vol.Schema:
     )
 
 
-async def _async_validate_connection(data: dict[str, Any]) -> None:
-    """Open the bus and conservatively validate every configured battery."""
-    transport = create_transport(data)
+def _connection_identity(data: Mapping[str, Any]) -> tuple[object, ...]:
+    """Return the physical endpoint and serial framing for one bus."""
+    connection_type = data[CONF_CONNECTION_TYPE]
+    if connection_type == CONNECTION_SERIAL:
+        return (
+            connection_type,
+            str(data[CONF_SERIAL_PORT]),
+            int(data.get(CONF_BAUDRATE, DEFAULT_BAUDRATE)),
+            str(data.get(CONF_PARITY, DEFAULT_PARITY)),
+            float(data.get(CONF_STOPBITS, DEFAULT_STOPBITS)),
+        )
+    return (
+        connection_type,
+        str(data[CONF_HOST]),
+        int(data[CONF_PORT]),
+    )
+
+
+@asynccontextmanager
+async def _async_operation_transport(
+    data: dict[str, Any],
+    borrowed_transport: RtuTransport | None = None,
+) -> AsyncIterator[RtuTransport]:
+    """Provide a transport, preserving a borrowed transport's timeout."""
+    owns_transport = borrowed_transport is None
+    transport = (
+        create_transport(data) if borrowed_transport is None else borrowed_transport
+    )
+    original_timeout = getattr(transport, "timeout", None)
+    if not owns_transport and original_timeout is not None:
+        transport.timeout = float(
+            data.get(CONF_RESPONSE_TIMEOUT, DEFAULT_RESPONSE_TIMEOUT)
+        )
     try:
-        await _async_prepare_serial_transport(data, transport)
+        if owns_transport:
+            await _async_prepare_serial_transport(data, transport)
+        yield transport
+    finally:
+        if not owns_transport and original_timeout is not None:
+            transport.timeout = original_timeout
+        if owns_transport:
+            await transport.close()
+
+
+async def _async_validate_connection(
+    data: dict[str, Any],
+    borrowed_transport: RtuTransport | None = None,
+) -> None:
+    """Open the bus and conservatively validate every configured battery."""
+    async with _async_operation_transport(data, borrowed_transport) as transport:
         for client in create_clients(transport, data):
             await client.ensure_awake(force=True)
-    finally:
-        await transport.close()
 
 
 async def _async_prepare_serial_transport(
@@ -211,6 +259,7 @@ async def _async_scan_bus(
     addresses: list[int],
     rounds: int,
     progress_callback: Callable[[float], None],
+    borrowed_transport: RtuTransport | None = None,
 ) -> list[int]:
     """Probe every selected address for a fixed number of complete rounds."""
     scan_data = {
@@ -222,13 +271,14 @@ async def _async_scan_bus(
             DEFAULT_SCAN_RESPONSE_TIMEOUT,
         ),
     }
-    transport = create_transport(scan_data)
     found: set[int] = set()
     total_probes = rounds * len(addresses)
     completed = 0
 
-    try:
-        await _async_prepare_serial_transport(scan_data, transport)
+    async with _async_operation_transport(
+        scan_data,
+        borrowed_transport,
+    ) as transport:
         clients = {
             client.slave_address: client
             for client in create_clients(transport, scan_data)
@@ -247,8 +297,6 @@ async def _async_scan_bus(
                     found.add(address)
                 completed += 1
                 progress_callback(completed / total_probes)
-    finally:
-        await transport.close()
 
     return [address for address in addresses if address in found]
 
@@ -300,6 +348,8 @@ class HuaweiEsm48100ConfigFlow(
     ) -> ConfigFlowResult:
         """Reconfigure connection details and battery addresses."""
         entry = self._get_reconfigure_entry()
+        if entry.state is not ConfigEntryState.LOADED:
+            return self.async_abort(reason="reconfigure_in_progress")
         if user_input is not None:
             return await self._route_connection_type(
                 user_input[CONF_CONNECTION_TYPE]
@@ -327,20 +377,34 @@ class HuaweiEsm48100ConfigFlow(
         return self.source == config_entries.SOURCE_RECONFIGURE
 
     @asynccontextmanager
-    async def _async_exclusive_bus_access(self) -> AsyncIterator[None]:
-        """Temporarily stop the active entry while reconfiguring its bus."""
+    async def _async_exclusive_bus_access(
+        self,
+    ) -> AsyncIterator[RtuTransport | None]:
+        """Borrow an unchanged bus, or hand off a changed bus explicitly."""
         if not self._is_reconfigure():
-            yield
+            yield None
             return
 
         entry = self._get_reconfigure_entry()
-        was_loaded = entry.state is ConfigEntryState.LOADED
-        if not was_loaded:
-            yield
+        if entry.state is not ConfigEntryState.LOADED:
+            raise ReconfigureInProgressError(
+                f"Config entry is not ready for reconfiguration: {entry.state}"
+            )
+
+        assert self._connection_data is not None
+        if _connection_identity(self._connection_data) == _connection_identity(
+            entry.data
+        ):
+            async with (
+                entry.runtime_data.coordinator.async_exclusive_bus_access()
+            ) as transport:
+                yield transport
             return
 
         if not await self.hass.config_entries.async_unload(entry.entry_id):
-            raise RuntimeError("Unable to temporarily unload the active RS485 bus")
+            raise ReconfigureInProgressError(
+                "Unable to temporarily unload the active RS485 bus"
+            )
 
         try:
             yield
@@ -487,10 +551,12 @@ class HuaweiEsm48100ConfigFlow(
                     CONF_SLAVE_ADDRESSES: addresses,
                 }
                 try:
-                    async with self._async_exclusive_bus_access():
-                        await _async_validate_connection(data)
+                    async with self._async_exclusive_bus_access() as transport:
+                        await _async_validate_connection(data, transport)
                 except SerialPortUnavailableError:
                     errors["base"] = "serial_port_unavailable"
+                except ReconfigureInProgressError:
+                    errors["base"] = "reconfigure_in_progress"
                 except EsmError:
                     errors["base"] = "cannot_connect"
                 except Exception:
@@ -519,15 +585,8 @@ class HuaweiEsm48100ConfigFlow(
                     progress_action="scan_bus",
                     progress_task=self._scan_task,
                 )
-            try:
-                self._scan_results = self._scan_task.result()
-            except SerialPortUnavailableError:
-                self._scan_error = "serial_port_unavailable"
-            except Exception:
-                _LOGGER.exception("Unexpected error scanning ESM-48100 bus")
-                self._scan_error = "unknown"
-            finally:
-                self._scan_task = None
+            self._scan_results = self._scan_task.result()
+            self._scan_task = None
             return self.async_show_progress_done(
                 next_step_id="scan_result"
             )
@@ -548,18 +607,26 @@ class HuaweiEsm48100ConfigFlow(
                 assert self._connection_data is not None
                 self._scan_results = []
                 self._scan_error = None
-                self._scan_task = self.hass.async_create_task(
-                    self._async_scan_bus_exclusively(
-                        addresses,
-                        self._scan_rounds,
-                    ),
-                    f"{DOMAIN}_bus_scan",
-                )
-                return self.async_show_progress(
-                    step_id="scan",
-                    progress_action="scan_bus",
-                    progress_task=self._scan_task,
-                )
+                if (
+                    self._is_reconfigure()
+                    and self._get_reconfigure_entry().state
+                    is not ConfigEntryState.LOADED
+                ):
+                    errors["base"] = "reconfigure_in_progress"
+                else:
+                    self._scan_task = self.hass.async_create_task(
+                        self._async_scan_bus_exclusively(
+                            addresses,
+                            self._scan_rounds,
+                        ),
+                        f"{DOMAIN}_bus_scan",
+                        eager_start=False,
+                    )
+                    return self.async_show_progress(
+                        step_id="scan",
+                        progress_action="scan_bus",
+                        progress_task=self._scan_task,
+                    )
 
         return self.async_show_form(
             step_id="scan",
@@ -577,13 +644,23 @@ class HuaweiEsm48100ConfigFlow(
     ) -> list[int]:
         """Scan without leaving the active entry competing for the bus."""
         assert self._connection_data is not None
-        async with self._async_exclusive_bus_access():
-            return await _async_scan_bus(
-                self._connection_data,
-                addresses,
-                rounds,
-                self.async_update_progress,
-            )
+        try:
+            async with self._async_exclusive_bus_access() as transport:
+                return await _async_scan_bus(
+                    self._connection_data,
+                    addresses,
+                    rounds,
+                    self.async_update_progress,
+                    transport,
+                )
+        except SerialPortUnavailableError:
+            self._scan_error = "serial_port_unavailable"
+        except ReconfigureInProgressError:
+            self._scan_error = "reconfigure_in_progress"
+        except Exception:
+            _LOGGER.exception("Unexpected error scanning ESM-48100 bus")
+            self._scan_error = "unknown"
+        return []
 
     async def async_step_scan_result(
         self,

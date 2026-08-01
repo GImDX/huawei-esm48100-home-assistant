@@ -1,0 +1,69 @@
+name: Device or firmware compatibility report
+description: Report results for an ESM-48100 model or firmware not yet documented
+title: "[Compatibility]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Compatibility reports must be read-only by default. Do not access anti-theft or
+        gyroscope functions, and do not attach unredacted captures, serial numbers, bar codes,
+        private endpoints, or credentials.
+  - type: input
+    id: model
+    attributes:
+      label: Exact battery model
+      placeholder: ESM-48100B1
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware or software version
+      placeholder: V112
+    validations:
+      required: true
+  - type: input
+    id: cell_count
+    attributes:
+      label: Cell count
+      placeholder: "15"
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Tested transport
+      options:
+        - Serial RTU
+        - Transparent TCP RTU
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Test result
+      description: List working and incorrect entities, alarms, or configuration steps.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Read-only evidence
+      description: Summarize probe output or captures after removing identifying information.
+      render: text
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Safety and privacy checklist
+      options:
+        - label: Advanced controls were disabled during compatibility testing.
+          required: true
+        - label: I did not access gyroscope or anti-theft functions.
+          required: true
+        - label: I removed serial numbers, bar codes, endpoints, credentials, and other identifying information.
+          required: true
+        - label: Only one Modbus master was connected during the test.
+          required: true

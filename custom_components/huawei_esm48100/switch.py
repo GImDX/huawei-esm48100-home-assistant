@@ -79,11 +79,17 @@ class HuaweiEsm48100ControlSwitch(HuaweiEsm48100Entity, SwitchEntity):
     async def async_turn_on(self, **kwargs: object) -> None:
         """Set the alarm action to open."""
         del kwargs
-        await self.client.write_control_setting(self.definition.setting, True)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_write_control_setting(
+            self.slave_address,
+            self.definition.setting,
+            True,
+        )
 
     async def async_turn_off(self, **kwargs: object) -> None:
         """Set the alarm action to close."""
         del kwargs
-        await self.client.write_control_setting(self.definition.setting, False)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_write_control_setting(
+            self.slave_address,
+            self.definition.setting,
+            False,
+        )

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/GImDX/huawei-esm48100-home-assistant/security/advisories/new
+    about: Report security issues privately. Do not open a public issue.
+  - name: Protocol library issue
+    url: https://github.com/GImDX/huawei-esm48100/issues/new
+    about: Report low-level protocol parsing or transport issues in the protocol repository.

@@ -34,13 +34,14 @@ async def async_setup_entry(
     coordinator = HuaweiEsm48100Coordinator(
         hass,
         entry,
+        transport,
         clients,
         runtime_config,
     )
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception:
-        await transport.close()
+        await coordinator.async_shutdown()
         raise
 
     entry.runtime_data = HuaweiEsm48100RuntimeData(transport, coordinator)
@@ -56,6 +57,5 @@ async def async_unload_entry(
     """Unload one RS485 bus."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
-    await entry.runtime_data.coordinator.stop_keepalive()
-    await entry.runtime_data.transport.close()
+    await entry.runtime_data.coordinator.async_shutdown()
     return True

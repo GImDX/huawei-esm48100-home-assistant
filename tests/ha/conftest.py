@@ -103,6 +103,7 @@ def mock_protocol() -> MockProtocol:
     transport = MagicMock()
     transport.connect = AsyncMock()
     transport.close = AsyncMock()
+    transport.timeout = 3.0
     transport.diagnostics = TransportDiagnostics(
         requests=202,
         responses=202,
